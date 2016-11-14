@@ -51,8 +51,13 @@ object NonNegativeTest {
 
   // just test
   def test(k: Double): Option[Double @@ NonNegative] = {
-    val one = unit(k).flatMap { _ |+| 5.0 }.flatMap { _ |-| 3.0 }
+    // safe construction
+    val one = unit(k)
+      .flatMap { _ |+| 5.0 flatMap { _ |-| 1.0 } }
+      .flatMap { _ |-| 3.0 }
+    // haphazard construction
     val two = tag[Double, NonNegative](5.0)
+    // combination example
     two |-| 2.0 flatMap { t => one.flatMap { o => unit(o + t) } }
   }
 }
