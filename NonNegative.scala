@@ -61,3 +61,54 @@ object NonNegativeTest {
     two |-| 2.0 flatMap { t => one.flatMap { o => unit(o + t) } }
   }
 }
+
+object NonNegativeAsOption {
+  trait Applicative[A, B, F[_]] {
+    def <*>(fa: F[A])(fb: F[A => B]): F[B]
+    //def <*>[A, B](fa: F[A])(fb: F[A => B]): F[B]
+  }
+
+  type NonNegOpt[T] = Option[T] @@ NonNegative
+
+  trait NonNegativeOpt[T] extends Applicative[T, T, NonNegOpt] {
+    def unit(t: T): NonNegOpt[T]
+    def <*>(nno: NonNegOpt[T])(nnott: NonNegOpt[T => T]): NonNegOpt[T] =
+      tag(nno.flatMap { d => nnott.flatMap { f => unit(f(d)) } })
+  }
+
+  implicit val nonNegOptForDouble = new NonNegativeOpt[Double] {
+    def unit(d: Double): NonNegOpt[Double] = tag(if (d < 0.0) None else Option(d))
+  }
+
+  implicit class addNonNegOpt[T : NonNegativeOpt](fa: NonNegOpt[T])(implicit val funToNonNegOpt: (T => T) => NonNegOpt[T => T]) {
+    def <*>(fb: T => T): NonNegOpt[T] = implicitly[NonNegativeOpt[T]].<*>(fa)(fb)
+  }
+
+  implicit def funToNonNegOpt[T](f: T => T): NonNegOpt[T => T] = tag(Option(f))
+
+  def testDouble(t: NonNegOpt[Double]) = {
+    t <*> {_ + 2.0} <*> {_ - 10.0}
+  }
+
+  // Money
+  type MoneyTag
+  trait Money {
+    def |+|(s1: (Int, Int) @@ MoneyTag, s2: (Int, Int)): (Int, Int) @@ MoneyTag = {
+      val r2 = s1._2 + s2._2
+      tag((s1._1 + s2._1 + r2/100, r2 % 100))
+    }
+  }
+  object Money extends Money
+  
+  implicit class addMoney(s1: (Int, Int) @@ MoneyTag) {
+    def |+|(s2: (Int, Int)): (Int, Int) @@ MoneyTag = Money.|+|(s1, s2)
+  }
+  
+  implicit val nonNegOptForMoney = new NonNegativeOpt[(Int, Int) @@ MoneyTag] {
+    def unit(d: (Int, Int) @@ MoneyTag): NonNegOpt[(Int, Int) @@ MoneyTag] = tag(if (d._1 < 0 || d._2 < 0) None else Option(d))
+  }
+
+  def testMoney(t: NonNegOpt[(Int, Int) @@ MoneyTag]) = {
+    t <*> {_ |+| (2 ,3)} <*> {_ |+| (3, 5)}
+  }
+}
