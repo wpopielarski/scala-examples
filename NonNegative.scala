@@ -76,39 +76,55 @@ object NonNegativeAsOption {
       tag(nno.flatMap { d => nnott.flatMap { f => unit(f(d)) } })
   }
 
+  implicit def funToNonNegOpt[T](f: T => T): NonNegOpt[T => T] = tag(Option(f))
+
+  implicit class addNonNegOpt[T: NonNegativeOpt](fa: NonNegOpt[T])(implicit val funToNonNegOpt: (T => T) => NonNegOpt[T => T]) {
+    def <*>(fb: T => T): NonNegOpt[T] = implicitly[NonNegativeOpt[T]].<*>(fa)(fb)
+  }
+
+  // Double example
   implicit val nonNegOptForDouble = new NonNegativeOpt[Double] {
     def unit(d: Double): NonNegOpt[Double] = tag(if (d < 0.0) None else Option(d))
   }
 
-  implicit class addNonNegOpt[T : NonNegativeOpt](fa: NonNegOpt[T])(implicit val funToNonNegOpt: (T => T) => NonNegOpt[T => T]) {
-    def <*>(fb: T => T): NonNegOpt[T] = implicitly[NonNegativeOpt[T]].<*>(fa)(fb)
-  }
-
-  implicit def funToNonNegOpt[T](f: T => T): NonNegOpt[T => T] = tag(Option(f))
-
   def testDouble(t: NonNegOpt[Double]) = {
-    t <*> {_ + 2.0} <*> {_ - 10.0}
+    t <*> { _ + 2.0 } <*> { _ - 10.0 }
   }
 
-  // Money
+  // Money example
   type MoneyTag
   trait Money {
-    def |+|(s1: (Int, Int) @@ MoneyTag, s2: (Int, Int)): (Int, Int) @@ MoneyTag = {
-      val r2 = s1._2 + s2._2
-      tag((s1._1 + s2._1 + r2/100, r2 % 100))
+    private def normalize(s: (Int, Int) @@ MoneyTag): (Int, Int) @@ MoneyTag = {
+      val (r1, r2) = (s._1 + s._2 / 100, s._2 % 100)
+      tag(if (r1 > 0 && r2 < 0) (r1 - 1, r2 + 100) else (r1, r2))
     }
+
+    def |+|(s1: (Int, Int) @@ MoneyTag, s2: (Int, Int)): (Int, Int) @@ MoneyTag =
+      normalize(tag((s1._1 + s2._1, s1._2 + s2._2)))
+
+    def |-|(s1: (Int, Int) @@ MoneyTag, s2: (Int, Int)): (Int, Int) @@ MoneyTag =
+      normalize(tag((s1._1 - s2._1, s1._2 - s2._2)))
   }
   object Money extends Money
-  
+
   implicit class addMoney(s1: (Int, Int) @@ MoneyTag) {
     def |+|(s2: (Int, Int)): (Int, Int) @@ MoneyTag = Money.|+|(s1, s2)
+    def |-|(s2: (Int, Int)): (Int, Int) @@ MoneyTag = Money.|-|(s1, s2)
   }
-  
+
   implicit val nonNegOptForMoney = new NonNegativeOpt[(Int, Int) @@ MoneyTag] {
     def unit(d: (Int, Int) @@ MoneyTag): NonNegOpt[(Int, Int) @@ MoneyTag] = tag(if (d._1 < 0 || d._2 < 0) None else Option(d))
   }
 
   def testMoney(t: NonNegOpt[(Int, Int) @@ MoneyTag]) = {
-    t <*> {_ |+| (2 ,3)} <*> {_ |+| (3, 5)}
+    t <*> { _ |+| (2, 3) } <*> { _ |+| (3, 5) }
   }
+}
+
+import NonNegativeAsOption._
+
+object Test extends App {
+  val m = nonNegOptForMoney.unit(tag((1, 0)))
+  println(m <*> { _ |-| (0, 65) })
+  println(m <*> { _ |-| (0, 65) } <*> { _ |+| (0, 223) } <*> { _ |-| (0, 59) })
 }
